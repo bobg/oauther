@@ -89,7 +89,7 @@ func (fc filecache) Get(ctx context.Context, conf *oauth2.Config) (*oauth2.Token
 		return nil, err
 	}
 	defer f.Close()
-	var tok *oauth2.Token
+	tok := new(oauth2.Token)
 	err = json.NewDecoder(f).Decode(tok)
 	return tok, err
 }
