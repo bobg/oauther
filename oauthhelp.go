@@ -54,12 +54,12 @@ func (w websrc) Get(ctx context.Context, conf *oauth2.Config) (*oauth2.Token, er
 // Note, the URL typically requires human interaction to authorize issuance of the code.
 // A simple version of the function is therefore something like this:
 //
-// func(url string) (string, error) {
-//   fmt.Printf("Get an auth code from the following URL, then enter it here:\n%s\n", url)
-//   var code string
-//   _, err := fmt.Scan(&code)
-//   return code, err
-// }
+//   func(url string) (string, error) {
+//     fmt.Printf("Get an auth code from the following URL, then enter it here:\n%s\n", url)
+//     var code string
+//     _, err := fmt.Scan(&code)
+//     return code, err
+//   }
 func NewWebTokenSrc(authCodeFn func(string) (string, error)) TokenSrc {
 	return websrc{authCodeFn: authCodeFn}
 }
