@@ -1,4 +1,4 @@
-package oauthhelp
+package oauther
 
 import (
 	"context"
