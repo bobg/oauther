@@ -3,8 +3,6 @@ package oauther
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
 
@@ -18,12 +16,8 @@ type TokenSrc interface {
 }
 
 // HTTPClient produces a *http.Client with OAuth authorization based on creds (source of JSON-encoded OAuth credentials) and scope.
-func HTTPClient(ctx context.Context, creds io.Reader, src TokenSrc, scope ...string) (*http.Client, error) {
-	credBits, err := ioutil.ReadAll(creds)
-	if err != nil {
-		return nil, err
-	}
-	config, err := google.ConfigFromJSON(credBits, scope...)
+func HTTPClient(ctx context.Context, creds []byte, src TokenSrc, scope ...string) (*http.Client, error) {
+	config, err := google.ConfigFromJSON(creds, scope...)
 	if err != nil {
 		return nil, err
 	}
