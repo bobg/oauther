@@ -15,6 +15,25 @@ type TokenSrc interface {
 	Get(context.Context, *oauth2.Config) (*oauth2.Token, error)
 }
 
+// Convert converts a TokenSrc to an oauth2.TokenSource
+func Convert(src TokenSrc, ctx context.Context, conf *oauth2.Config) oauth2.TokenSource {
+	return &converted{
+		src:  src,
+		ctx:  ctx,
+		conf: conf,
+	}
+}
+
+type converted struct {
+	src  TokenSrc
+	ctx  context.Context
+	conf *oauth2.Config
+}
+
+func (c *converted) Token() (*oauth2.Token, error) {
+	return c.src.Get(c.ctx, c.conf)
+}
+
 // HTTPClient produces a *http.Client with OAuth authorization based on creds (source of JSON-encoded OAuth credentials) and scope.
 func HTTPClient(ctx context.Context, creds []byte, src TokenSrc, scope ...string) (*http.Client, error) {
 	config, err := google.ConfigFromJSON(creds, scope...)
