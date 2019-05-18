@@ -5,7 +5,7 @@
 //
 //   creds, err := os.Open("credentials.json")
 //   if err != nil { ... }
-//   defer creds.Close()
+//   defer credsFile.Close()
 //   src := oauther.NewWebTokenSrc(interact)
 //   src = oauther.NewFileCache(src, "token.json") // optional file caching of the token from NewWebTokenSrc
 //   client, err := oauther.HTTPClient(ctx, creds, src, people.ContactsScope)
