@@ -10,19 +10,14 @@ import (
 	"golang.org/x/oauth2/google"
 )
 
-// TokenSrc is a source of OAuth tokens.
-type TokenSrc interface {
-	Get(context.Context, *oauth2.Config) (*oauth2.Token, error)
-}
-
-// HTTPClient produces a *http.Client with OAuth authorization based on creds (source of JSON-encoded OAuth credentials) and scope.
-func HTTPClient(ctx context.Context, creds []byte, src TokenSrc, scope ...string) (*http.Client, error) {
+// HTTPClient produces a *http.Client with OAuth authorization based on creds (JSON-encoded OAuth credentials) and scope.
+func HTTPClient(ctx context.Context, creds []byte, src oauth2.TokenSource, scope ...string) (*http.Client, error) {
 	config, err := google.ConfigFromJSON(creds, scope...)
 	if err != nil {
 		return nil, err
 	}
 	var tok *oauth2.Token
-	tok, err = src.Get(ctx, config)
+	tok, err = src.Token(ctx, config)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +37,7 @@ func (w websrc) Get(ctx context.Context, conf *oauth2.Config) (*oauth2.Token, er
 	return conf.Exchange(ctx, code)
 }
 
-// NewWebTokenSrc produces a TokenSrc that converts a config+URL into a token.
+// NewWebTokenSrc produces a TokenSource that converts a config+URL into a token.
 // It requires a function that takes a URL and retrieves an auth code string from there.
 //
 // Note, the URL typically requires human interaction to authorize issuance of the code.
@@ -54,17 +49,17 @@ func (w websrc) Get(ctx context.Context, conf *oauth2.Config) (*oauth2.Token, er
 //     _, err := fmt.Scan(&code)
 //     return code, err
 //   }
-func NewWebTokenSrc(authCodeFn func(string) (string, error)) TokenSrc {
+func NewWebTokenSrc(authCodeFn func(string) (string, error)) oauth2.TokenSource {
 	return websrc{authCodeFn: authCodeFn}
 }
 
 type filecache struct {
-	src      TokenSrc
+	src      oauth2.TokenSource
 	filename string
 }
 
-// Get implements TokenSrc.
-func (fc filecache) Get(ctx context.Context, conf *oauth2.Config) (*oauth2.Token, error) {
+// Token implements oauth2.TokenSource.
+func (fc filecache) Token(ctx context.Context, conf *oauth2.Config) (*oauth2.Token, error) {
 	f, err := os.Open(fc.filename)
 	if os.IsNotExist(err) {
 		tok, err := fc.src.Get(ctx, conf)
@@ -88,8 +83,8 @@ func (fc filecache) Get(ctx context.Context, conf *oauth2.Config) (*oauth2.Token
 	return tok, err
 }
 
-// NewFileCache produces a TokenSrc that uses a named file as persistent storage and another TokenSrc for cache misses.
-func NewFileCache(src TokenSrc, filename string) TokenSrc {
+// NewFileCache produces a TokenSource that uses a named file as persistent storage and another TokenSource for cache misses.
+func NewFileCache(src oauth2.TokenSource, filename string) TokenSource {
 	return filecache{
 		src:      src,
 		filename: filename,
