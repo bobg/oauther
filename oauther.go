@@ -84,7 +84,7 @@ type codeSrc struct {
 
 func (c codeSrc) Get(ctx context.Context, conf *oauth2.Config) (*oauth2.Token, error) {
 	if c.code != "" {
-		return conf.Exchange(c.code)
+		return conf.Exchange(ctx, c.code)
 	}
 	return c.src.Get(ctx, conf)
 }
