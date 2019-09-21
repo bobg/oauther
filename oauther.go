@@ -77,6 +77,24 @@ func NewWebTokenSrc(authCodeFn func(string) (string, error)) TokenSrc {
 	return websrc{authCodeFn: authCodeFn}
 }
 
+type codeSrc struct {
+	src  TokenSrc
+	code string
+}
+
+func (c codeSrc) Get(ctx context.Context, conf *oauth2.Config) (*oauth2.Token, error) {
+	if c.code != "" {
+		return conf.Exchange(c.code)
+	}
+	return c.src.Get(ctx, conf)
+}
+
+// NewCodeTokenSrc produces a TokenSrc that produces an oauth token from the given auth code if it's non-empty,
+// falling back to the next TokenSrc otherwise.
+func NewCodeTokenSrc(src TokenSrc, code string) TokenSrc {
+	return codeSrc{src: src, code: code}
+}
+
 type filecache struct {
 	src      TokenSrc
 	filename string
