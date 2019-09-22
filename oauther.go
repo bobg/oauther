@@ -3,132 +3,88 @@ package oauther
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"os"
 
+	"github.com/pkg/errors"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
 
-// TokenSrc is a source of OAuth tokens.
-type TokenSrc interface {
-	Get(context.Context, *oauth2.Config) (*oauth2.Token, error)
-}
+// Token obtains an oauth2 token.
+// It first tries to read it from filename
+// (if filename is not "").
+// If that fails,
+// it tries to exchange authcode for one
+// (if authcode is not ""),
+// then stores the token in filename
+// (if filename is not "").
+// If that fails,
+// it returns an ErrNeedAuthCode,
+// which contains the URL where the user can interactively obtain a new authcode
+// (which can then be passed to a retry of this function).
+func Token(ctx context.Context, filename, authcode string, creds []byte, scope ...string) (*oauth2.Token, error) {
+	var (
+		tok *oauth2.Token
+		err error
+	)
 
-// Convert converts a TokenSrc to an oauth2.TokenSource
-func Convert(src TokenSrc, ctx context.Context, conf *oauth2.Config) oauth2.TokenSource {
-	return &converted{
-		src:  src,
-		ctx:  ctx,
-		conf: conf,
-	}
-}
-
-type converted struct {
-	src  TokenSrc
-	ctx  context.Context
-	conf *oauth2.Config
-}
-
-func (c *converted) Token() (*oauth2.Token, error) {
-	return c.src.Get(c.ctx, c.conf)
-}
-
-// HTTPClient produces a *http.Client with OAuth authorization based on creds (source of JSON-encoded OAuth credentials) and scope.
-func HTTPClient(ctx context.Context, creds []byte, src TokenSrc, scope ...string) (*http.Client, error) {
-	config, err := google.ConfigFromJSON(creds, scope...)
-	if err != nil {
-		return nil, err
-	}
-	var tok *oauth2.Token
-	tok, err = src.Get(ctx, config)
-	if err != nil {
-		return nil, err
-	}
-	return config.Client(ctx, tok), nil
-}
-
-type websrc struct {
-	authCodeFn func(string) (string, error)
-}
-
-func (w websrc) Get(ctx context.Context, conf *oauth2.Config) (*oauth2.Token, error) {
-	url := conf.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
-	code, err := w.authCodeFn(url)
-	if err != nil {
-		return nil, err
-	}
-	return conf.Exchange(ctx, code)
-}
-
-// NewWebTokenSrc produces a TokenSrc that converts a config+URL into a token.
-// It requires a function that takes a URL and retrieves an auth code string from there.
-//
-// Note, the URL typically requires human interaction to authorize issuance of the code.
-// A simple version of the function is therefore something like this:
-//
-//   func(url string) (string, error) {
-//     fmt.Printf("Get an auth code from the following URL, then enter it here:\n%s\n", url)
-//     var code string
-//     _, err := fmt.Scan(&code)
-//     return code, err
-//   }
-func NewWebTokenSrc(authCodeFn func(string) (string, error)) TokenSrc {
-	return websrc{authCodeFn: authCodeFn}
-}
-
-type codeSrc struct {
-	src  TokenSrc
-	code string
-}
-
-func (c codeSrc) Get(ctx context.Context, conf *oauth2.Config) (*oauth2.Token, error) {
-	if c.code != "" {
-		return conf.Exchange(ctx, c.code)
-	}
-	return c.src.Get(ctx, conf)
-}
-
-// NewCodeTokenSrc produces a TokenSrc that produces an oauth token from the given auth code if it's non-empty,
-// falling back to the next TokenSrc otherwise.
-func NewCodeTokenSrc(src TokenSrc, code string) TokenSrc {
-	return codeSrc{src: src, code: code}
-}
-
-type filecache struct {
-	src      TokenSrc
-	filename string
-}
-
-// Get implements TokenSrc.
-func (fc filecache) Get(ctx context.Context, conf *oauth2.Config) (*oauth2.Token, error) {
-	f, err := os.Open(fc.filename)
-	if os.IsNotExist(err) {
-		tok, err := fc.src.Get(ctx, conf)
-		if err != nil {
-			return nil, err
+	if filename != "" {
+		tok, err = tryFile(filename)
+		if tok != nil && err == nil {
+			return tok, nil
 		}
-		f, err := os.OpenFile(fc.filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-		if err != nil {
-			return nil, err
+		if !os.IsNotExist(err) {
+			return nil, errors.Wrapf(err, "opening %s", filename)
 		}
-		defer f.Close()
-		err = json.NewEncoder(f).Encode(tok)
-		return tok, err
 	}
+
+	conf, err := google.ConfigFromJSON(creds, scope...)
+	if err != nil {
+		return nil, errors.Wrap(err, "reading oauth config")
+	}
+
+	if authcode != "" {
+		tok, err = conf.Exchange(ctx, authcode)
+		if tok != nil && err == nil {
+			if filename != "" {
+				f, err := os.Create(filename)
+				if err != nil {
+					return nil, errors.Wrapf(err, "opening %s for writing", filename)
+				}
+				defer f.Close()
+
+				err = json.NewEncoder(f).Encode(tok)
+				if err != nil {
+					return nil, errors.Wrapf(err, "writing %s", filename)
+				}
+			}
+			return tok, nil
+		}
+	}
+
+	return nil, ErrNeedAuthCode{URL: conf.AuthCodeURL("state-token", oauth2.AccessTypeOffline)}
+}
+
+func tryFile(filename string) (*oauth2.Token, error) {
+	f, err := os.Open(filename)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	tok := new(oauth2.Token)
-	err = json.NewDecoder(f).Decode(tok)
-	return tok, err
+
+	var tok oauth2.Token
+	err = json.NewDecoder(f).Decode(&tok)
+	return &tok, errors.Wrapf(err, "decoding token in %s", filename)
 }
 
-// NewFileCache produces a TokenSrc that uses a named file as persistent storage and another TokenSrc for cache misses.
-func NewFileCache(src TokenSrc, filename string) TokenSrc {
-	return filecache{
-		src:      src,
-		filename: filename,
-	}
+// ErrNeedAuthCode is the error returned by Token when the user must obtain an auth code.
+// They can do this interactively at the URL contained in the error.
+type ErrNeedAuthCode struct {
+	// URL is the web address where the user can interactively obtain an auth code.
+	// This can be used in a retry of the Token function.
+	URL string
+}
+
+func (e ErrNeedAuthCode) Error() string {
+	return "need auth code from " + e.URL
 }
