@@ -3,6 +3,7 @@ package oauther
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"os"
 
 	"github.com/pkg/errors"
@@ -23,6 +24,28 @@ import (
 // which contains the URL where the user can interactively obtain a new authcode
 // (which can then be passed to a retry of this function).
 func Token(ctx context.Context, filename, authcode string, creds []byte, scope ...string) (*oauth2.Token, error) {
+	tok, _, err := helper(ctx, filename, authcode, creds, scope...)
+	return tok, err
+}
+
+// Client obtains an oauth2-authorized HTTP client.
+// It is called in the same way as Token and may also produce an ErrNeedAuthCode error.
+// See Token for more information.
+func Client(ctx context.Context, filename, authcode string, creds []byte, scope ...string) (*http.Client, error) {
+	tok, conf, err := helper(ctx, filename, authcode, creds, scope...)
+	if err != nil {
+		return nil, err
+	}
+	if conf == nil {
+		conf, err = google.ConfigFromJSON(creds, scope...)
+		if err != nil {
+			return nil, errors.Wrap(err, "reading oauth config")
+		}
+	}
+	return conf.Client(ctx, tok), nil
+}
+
+func helper(ctx context.Context, filename, authcode string, creds []byte, scope ...string) (*oauth2.Token, *oauth2.Config, error) {
 	var (
 		tok *oauth2.Token
 		err error
@@ -31,16 +54,16 @@ func Token(ctx context.Context, filename, authcode string, creds []byte, scope .
 	if filename != "" {
 		tok, err = tryFile(filename)
 		if tok != nil && err == nil {
-			return tok, nil
+			return tok, nil, nil
 		}
 		if !os.IsNotExist(err) {
-			return nil, errors.Wrapf(err, "opening %s", filename)
+			return nil, nil, errors.Wrapf(err, "opening %s", filename)
 		}
 	}
 
 	conf, err := google.ConfigFromJSON(creds, scope...)
 	if err != nil {
-		return nil, errors.Wrap(err, "reading oauth config")
+		return nil, nil, errors.Wrap(err, "reading oauth config")
 	}
 
 	if authcode != "" {
@@ -49,20 +72,20 @@ func Token(ctx context.Context, filename, authcode string, creds []byte, scope .
 			if filename != "" {
 				f, err := os.Create(filename)
 				if err != nil {
-					return nil, errors.Wrapf(err, "opening %s for writing", filename)
+					return nil, nil, errors.Wrapf(err, "opening %s for writing", filename)
 				}
 				defer f.Close()
 
 				err = json.NewEncoder(f).Encode(tok)
 				if err != nil {
-					return nil, errors.Wrapf(err, "writing %s", filename)
+					return nil, nil, errors.Wrapf(err, "writing %s", filename)
 				}
 			}
-			return tok, nil
+			return tok, conf, nil
 		}
 	}
 
-	return nil, ErrNeedAuthCode{URL: conf.AuthCodeURL("state-token", oauth2.AccessTypeOffline)}
+	return nil, nil, ErrNeedAuthCode{URL: conf.AuthCodeURL("state-token", oauth2.AccessTypeOffline)}
 }
 
 func tryFile(filename string) (*oauth2.Token, error) {
