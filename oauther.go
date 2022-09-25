@@ -23,6 +23,7 @@ type File struct {
 	Next     OAuther
 }
 
+// Token implements OAuther.Token.
 func (a File) Token(ctx context.Context) (*oauth2.Token, error) {
 	f, err := os.Open(a.Filename)
 	if errors.Is(err, fs.ErrNotExist) {

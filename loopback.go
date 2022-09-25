@@ -43,6 +43,7 @@ func (a Loopback) Token(ctx context.Context) (*oauth2.Token, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "creating listener")
 	}
+	defer listener.Close()
 
 	// TODO: Use crypto/rand instead of math/rand. Es más macho.
 	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
