@@ -1,4 +1,4 @@
-module github.com/bobg/oauther/v4
+module github.com/bobg/oauther/v5
 
 go 1.19
 
