@@ -3,6 +3,7 @@ package oauther
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -12,65 +13,12 @@ import (
 	"golang.org/x/oauth2/google"
 )
 
-// OAuther is any type that can produce an OAuth2 token.
-type OAuther interface {
-	Token(context.Context) (*oauth2.Token, error)
-}
-
-// File is an OAuther that reads a token from a file.
-type File struct {
-	Filename string
-	Next     OAuther
-}
-
-// Token implements OAuther.Token.
-func (a File) Token(ctx context.Context) (*oauth2.Token, error) {
-	f, err := os.Open(a.Filename)
-	if errors.Is(err, fs.ErrNotExist) {
-		return a.doNext(ctx)
-	}
-	if err != nil {
-		return nil, errors.Wrapf(err, "opening %s", a.Filename)
-	}
-	defer f.Close()
-
-	var tok oauth2.Token
-	if err = json.NewDecoder(f).Decode(&tok); err != nil {
-		return nil, errors.Wrapf(err, "decoding token in %s", a.Filename)
-	}
-	if !tok.Valid() {
-		return a.doNext(ctx)
-	}
-	return &tok, nil
-}
-
-func (a File) doNext(ctx context.Context) (*oauth2.Token, error) {
-	tok, err := a.Next.Token(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	f, err := os.OpenFile(a.Filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0400)
-	if err != nil {
-		return nil, errors.Wrapf(err, "opening %s for writing", a.Filename)
-	}
-	defer f.Close()
-
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ") // because why not
-	if err = enc.Encode(tok); err != nil {
-		return nil, errors.Wrap(err, "JSON-encoding token")
-	}
-
-	err = f.Close()
-	return tok, errors.Wrapf(err, "storing file %s", a.Filename)
-}
-
 // Token obtains an oauth2 token from the given filename.
 // If the file does not exist,
 // or the token is invalid
 // (e.g. expired),
-// Token does "loopback auth" in the user's browser,
+// Token first tries to refresh the token (if applicable)
+// and falls back to doing "loopback auth" in the user's browser,
 // storing the resulting token in the named file on success
 // before returning it.
 // Creds are the bytes of a JSON credentials file.
@@ -95,13 +43,54 @@ func getToken(ctx context.Context, filename string, creds []byte, scope ...strin
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "parsing credentials")
 	}
-	a := File{
-		Filename: filename,
-		Next: Loopback{
-			Conf:   conf,
-			Scopes: scope,
-		},
+
+	f, err := os.Open(filename)
+	if errors.Is(err, fs.ErrNotExist) {
+		tok, err := getToken2(ctx, conf, nil, filename)
+		return tok, conf, err
 	}
-	tok, err := a.Token(ctx)
-	return tok, conf, err
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "opening %s", filename)
+	}
+	defer f.Close()
+
+	tok := new(oauth2.Token)
+	if err = json.NewDecoder(f).Decode(tok); err != nil {
+		return nil, nil, errors.Wrapf(err, "decoding token in %s", filename)
+	}
+	if !tok.Valid() {
+		tok, err = getToken2(ctx, conf, tok, filename)
+		return tok, conf, err
+	}
+	return tok, conf, nil
+}
+
+func getToken2(ctx context.Context, conf *oauth2.Config, expiredtok *oauth2.Token, filename string) (tok *oauth2.Token, err error) {
+	defer func() {
+		if err != nil {
+			return
+		}
+
+		var f io.WriteCloser
+		f, err = os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+		if err != nil {
+			err = errors.Wrapf(err, "opening %s for writing", filename)
+			return
+		}
+		defer f.Close()
+
+		enc := json.NewEncoder(f)
+		enc.SetIndent("", "  ") // because why not
+		if err = enc.Encode(tok); err != nil {
+			err = errors.Wrap(err, "JSON-encoding token")
+			return
+		}
+	}()
+
+	tok, err = conf.TokenSource(ctx, expiredtok).Token()
+	if err == nil { // sic
+		return tok, nil
+	}
+
+	return doLoopback(ctx, conf)
 }

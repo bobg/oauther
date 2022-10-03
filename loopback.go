@@ -26,19 +26,13 @@ var doneHTML []byte
 
 const codebytes = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
 
-// Loopback is an OAuther that does loopback authorization.
+// DoLoopback does loopback authorization.
 // The user's browser is opened on a specially constructed URL,
 // and an HTTP server is spun up on a port on localhost.
 // If the user grants access via the browser flow,
 // a callback request containing an authorization code is sent to the localhost server,
 // which exchanges the code for an OAuth token.
-type Loopback struct {
-	Conf   *oauth2.Config
-	Scopes []string
-}
-
-// Token implements OAuther.Token.
-func (a Loopback) Token(ctx context.Context) (*oauth2.Token, error) {
+func doLoopback(ctx context.Context, conf *oauth2.Config) (*oauth2.Token, error) {
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		return nil, errors.Wrap(err, "creating listener")
@@ -101,10 +95,10 @@ func (a Loopback) Token(ctx context.Context) (*oauth2.Token, error) {
 				}
 			}
 
-			conf := *a.Conf
-			conf.RedirectURL = "http://" + listener.Addr().String()
+			conf2 := *conf
+			conf2.RedirectURL = "http://" + listener.Addr().String()
 
-			tok, err = conf.Exchange(
+			tok, err = conf2.Exchange(
 				ctx,
 				code,
 				oauth2.SetAuthURLParam("code_verifier", string(codeVerifier[:])),
@@ -126,22 +120,22 @@ func (a Loopback) Token(ctx context.Context) (*oauth2.Token, error) {
 	defer srv.Shutdown(ctx)
 
 	v := url.Values{}
-	v.Set("client_id", a.Conf.ClientID)
+	v.Set("client_id", conf.ClientID)
 	v.Set("redirect_uri", "http://"+listener.Addr().String())
 	v.Set("response_type", "code")
-	v.Set("scope", strings.Join(a.Scopes, " "))
+	v.Set("scope", strings.Join(conf.Scopes, " "))
 	v.Set("code_challenge", cvbase64)
 	v.Set("code_challenge_method", "S256")
 	v.Set("state", string(state[:]))
 
-	u, err := url.Parse(a.Conf.Endpoint.AuthURL)
+	u, err := url.Parse(conf.Endpoint.AuthURL)
 	if err != nil {
-		return nil, errors.Wrapf(err, "parsing auth URL %s", a.Conf.Endpoint.AuthURL)
+		return nil, errors.Wrapf(err, "parsing auth URL %s", conf.Endpoint.AuthURL)
 	}
 	u.RawQuery = v.Encode()
 
 	if err = browser.OpenURL(u.String()); err != nil {
-		return nil, errors.Wrapf(err, "opening browser on %s", a.Conf.Endpoint.AuthURL)
+		return nil, errors.Wrapf(err, "opening browser on %s", conf.Endpoint.AuthURL)
 	}
 
 	select {
