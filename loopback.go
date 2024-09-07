@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bobg/errors"
 	"github.com/bobg/mid"
 	"github.com/pkg/browser"
-	"github.com/pkg/errors"
 	"golang.org/x/oauth2"
 )
 

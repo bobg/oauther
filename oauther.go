@@ -1,3 +1,4 @@
+// Package oauther encapsulates common OAuth patterns for Google data APIs.
 package oauther
 
 import (
@@ -8,7 +9,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/pkg/errors"
+	"github.com/bobg/errors"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
