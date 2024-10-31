@@ -12,5 +12,5 @@ require (
 require (
 	cloud.google.com/go v0.38.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	golang.org/x/sys v0.25.0 // indirect
+	golang.org/x/sys v0.26.0 // indirect
 )
