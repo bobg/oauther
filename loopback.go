@@ -32,6 +32,8 @@ const codebytes = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345678
 // If the user grants access via the browser flow,
 // a callback request containing an authorization code is sent to the localhost server,
 // which exchanges the code for an OAuth token.
+//
+// For details, see https://developers.google.com/identity/protocols/oauth2/native-app#obtainingaccesstokens.
 func doLoopback(ctx context.Context, conf *oauth2.Config) (*oauth2.Token, error) {
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
